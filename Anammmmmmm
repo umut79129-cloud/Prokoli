@@ -1,0 +1,160 @@
+bu da sv
+import socket
+import threading
+import pickle
+
+colors = [
+    (1.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, 0.0, 1.0),
+    (1.0, 1.0, 0.0)
+]
+
+players = {}
+
+def handle_client(conn, addr):
+    player_id = addr[1]
+    players[player_id] = {"pos":[0,0,0], "speed":0, "color": colors[len(players)%4]}
+    try:
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            move = pickle.loads(data)
+            players[player_id]["pos"] = move["pos"]
+            players[player_id]["speed"] = move["speed"]
+            conn.sendall(pickle.dumps(players))
+    finally:
+        if player_id in players:
+            del players[player_id]
+        conn.close()
+
+def server():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("0.0.0.0", 5555))
+    s.listen()
+    print("Server başladı, oyuncuları bekliyor...")
+    while True:
+        conn, addr = s.accept()
+        threading.Thread(target=handle_client, args=(conn, addr)).start()
+
+if __name__ == "__main__":
+    server()
+
+
+
+
+
+
+clientim bu 2 si ayrı oyun yani
+
+
+
+
+
+
+import pygame
+from pygame.locals import *
+from OpenGL.GL import *
+from OpenGL.GLU import *
+from OpenGL.GLUT import *
+import socket, pickle
+
+SERVER_IP = "SERVER_IP_ADRESI"
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((SERVER_IP, 5555))
+
+player = {"pos":[0,0,0], "speed":0, "color": (1,0,0)}
+finish_line = -50
+obstacles = [[2,0,-10],[-3,0,-20],[1,0,-35],[-2,0,-45]]
+car_size = 1.0
+
+def draw_cube(pos, color, size=1.0):
+    glPushMatrix()
+    glTranslatef(*pos)
+    glColor3f(*color)
+    glutSolidCube(size)
+    glPopMatrix()
+
+def check_collision(pos):
+    for obs in obstacles:
+        dx = abs(pos[0]-obs[0])
+        dz = abs(pos[2]-obs[2])
+        if dx < (car_size/2 + 0.75) and dz < (car_size/2 + 0.75):
+            return True
+    return False
+
+def draw_speed(speed):
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0,800,0,600)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glColor3f(1,1,1)
+    pygame.font.init()
+    font = pygame.font.SysFont("Arial", 24)
+    text_surface = font.render(f"Speed: {int(abs(speed)*100)}", True, (255,255,255))
+    text_data = pygame.image.tostring(text_surface,"RGBA",True)
+    glWindowPos2d(10,570)
+    glDrawPixels(text_surface.get_width(), text_surface.get_height(), GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+def game_loop():
+    pygame.init()
+    display = (800,600)
+    pygame.display.set_mode(display, DOUBLEBUF|OPENGL)
+    gluPerspective(45, (display[0]/display[1]), 0.1, 100.0)
+
+    clock = pygame.time.Clock()
+    won = False
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+
+        keys = pygame.key.get_pressed()
+        if keys[K_w]: player["speed"] += 0.1
+        if keys[K_s]: player["speed"] -= 0.1
+        if keys[K_a]: player["pos"][0] -= 0.1
+        if keys[K_d]: player["pos"][0] += 0.1
+        if keys[K_SPACE]: player["speed"] += 0.5
+
+        player["pos"][2] -= player["speed"] * 0.1
+        if check_collision(player["pos"]): player["speed"] *= -0.3
+        player["speed"] *= 0.95
+
+        if player["pos"][2] <= finish_line and not won:
+            print("Yarışı bitirdiniz!")
+            won = True
+
+        s.sendall(pickle.dumps(player))
+        data = s.recv(4096)
+        all_players = pickle.loads(data)
+
+        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
+
+        glLoadIdentity()
+        cam_x = player["pos"][0]
+        cam_y = 5
+        cam_z = player["pos"][2] + 10
+        gluLookAt(cam_x, cam_y, cam_z, player["pos"][0],0,player["pos"][2], 0,1,0)
+
+        for obs in obstacles: draw_cube(obs, (0.5,0.5,0.5), size=1.5)
+        draw_cube([0,0,finish_line], (1,1,1), size=5)
+        for p in all_players.values(): draw_cube(p["pos"], p["color"])
+        draw_speed(player["speed"])
+
+        pygame.display.flip()
+        clock.tick(60)
+
+if __name__ == "__main__":
+    glutInit()
+    game_loop()
