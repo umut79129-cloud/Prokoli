@@ -1,0 +1,171 @@
+import pygame
+import random
+import os
+
+pygame.init()
+width, height = 600, 400
+win = pygame.display.set_mode((width, height))
+pygame.display.set_caption("Flappy Bird Clone - Skor Tablosu")
+
+# Renkler
+WHITE = (255,255,255)
+SKY = (135,206,250)
+YELLOW = (255,255,0)
+RED = (255,0,0)
+GREEN = (0,200,0)
+BLUE = (0,0,255)
+ORANGE = (255,165,0)
+PURPLE = (128,0,128)
+COLORS = [GREEN, BLUE, ORANGE, PURPLE]
+
+font = pygame.font.SysFont("Arial",30)
+
+# Bulut oluştur
+num_clouds = 5
+clouds = []
+for _ in range(num_clouds):
+    x = random.randint(0, width)
+    y = random.randint(0, height//2)
+    size = random.randint(30, 60)
+    clouds.append({"x": x, "y": y, "size": size, "speed": random.uniform(0.5,1.5)})
+
+# En yüksek skor için dosya
+highscore_file = "highscore.txt"
+if not os.path.exists(highscore_file):
+    with open(highscore_file, "w") as f:
+        f.write("0")
+with open(highscore_file, "r") as f:
+    highscore = int(f.read())
+
+def game():
+    global highscore
+    bird_x = 50
+    bird_y = height//2
+    bird_radius = 20
+    vel_step = 5
+    move_up = False
+    move_down = False
+
+    pipe_width = 70
+    pipe_gap = 150
+    pipes = []
+    pipe_speed = 3
+    spawn_pipe_every = 1500
+    last_pipe_time = pygame.time.get_ticks()
+    speed_increase_interval = 10000  # yavaş artış
+    last_speed_increase = pygame.time.get_ticks()
+
+    score = 0
+    run = True
+    game_over = False
+    clock = pygame.time.Clock()
+
+    while run:
+        clock.tick(60)
+        win.fill(SKY)
+
+        # Bulutları çiz ve hareket ettir
+        for cloud in clouds:
+            pygame.draw.ellipse(win, WHITE, (cloud["x"], cloud["y"], cloud["size"]*2, cloud["size"]))
+            cloud["x"] -= cloud["speed"]
+            if cloud["x"] + cloud["size"]*2 < 0:
+                cloud["x"] = width
+                cloud["y"] = random.randint(0, height//2)
+                cloud["size"] = random.randint(30, 60)
+                cloud["speed"] = random.uniform(0.5,1.5)
+
+        # Event kontrol
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_w:
+                    move_up = True
+                if event.key == pygame.K_s:
+                    move_down = True
+                if event.key == pygame.K_RETURN and game_over:
+                    return True
+            if event.type == pygame.KEYUP:
+                if event.key == pygame.K_w:
+                    move_up = False
+                if event.key == pygame.K_s:
+                    move_down = False
+
+        if not game_over:
+            # Kuş hareketi
+            if move_up:
+                bird_y -= vel_step
+            if move_down:
+                bird_y += vel_step
+            bird_y = max(0, min(height - bird_radius, bird_y))
+
+            # Boru üret
+            current_time = pygame.time.get_ticks()
+            if current_time - last_pipe_time > spawn_pipe_every:
+                pipe_height = random.randint(50, height-pipe_gap-50)
+                color = random.choice(COLORS)
+                pipes.append({"x": width, "height": pipe_height, "passed": False, "color": color})
+                last_pipe_time = current_time
+
+            # Borular hızını yavaşça artır
+            if current_time - last_speed_increase > speed_increase_interval:
+                pipe_speed += 0.2
+                last_speed_increase = current_time
+
+            # Borular hareket ve çizim
+            remove_pipes = []
+            for pipe in pipes:
+                pipe["x"] -= pipe_speed
+                pygame.draw.rect(win, pipe["color"], (pipe["x"], 0, pipe_width, pipe["height"]))
+                pygame.draw.rect(win, pipe["color"], (pipe["x"], pipe["height"]+pipe_gap, pipe_width, height-pipe["height"]-pipe_gap))
+
+                # Çarpışma kontrolü
+                if bird_x + bird_radius > pipe["x"] and bird_x - bird_radius < pipe["x"]+pipe_width:
+                    if bird_y - bird_radius < pipe["height"] or bird_y + bird_radius > pipe["height"]+pipe_gap:
+                        game_over = True
+
+                # Skor kontrolü
+                if pipe["x"] + pipe_width < bird_x and not pipe["passed"]:
+                    score += 1
+                    pipe["passed"] = True
+
+                if pipe["x"] + pipe_width < 0:
+                    remove_pipes.append(pipe)
+
+            for pipe in remove_pipes:
+                pipes.remove(pipe)
+
+            # Kuş çizim (sabit)
+            pygame.draw.circle(win, YELLOW, (int(bird_x), int(bird_y)), bird_radius)
+            pygame.draw.circle(win, RED, (int(bird_x+5), int(bird_y-5)), 5)  # göz
+
+            # Skor çizim
+            score_text = font.render(f"Skor: {score}", True, WHITE)
+            highscore_text = font.render(f"En Yüksek: {highscore}", True, WHITE)
+            win.blit(score_text, (10,10))
+            win.blit(highscore_text, (10,40))
+
+        else:
+            # Highscore güncelleme
+            if score > highscore:
+                highscore = score
+                with open(highscore_file, "w") as f:
+                    f.write(str(highscore))
+
+            # Game Over ekranı
+            over_text = font.render(f"Oyun Bitti! Skor: {score}", True, RED)
+            restart_text = font.render("Enter ile tekrar başla", True, WHITE)
+            highscore_text = font.render(f"En Yüksek Skor: {highscore}", True, WHITE)
+            win.blit(over_text, (width//2 - over_text.get_width()//2, height//2 - 50))
+            win.blit(highscore_text, (width//2 - highscore_text.get_width()//2, height//2))
+            win.blit(restart_text, (width//2 - restart_text.get_width()//2, height//2 + 40))
+
+        pygame.display.update()
+
+while True:
+    restart = game()
+    if not restart:
+        break
+
+pygame.quit()
